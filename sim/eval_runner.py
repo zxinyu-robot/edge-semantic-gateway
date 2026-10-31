@@ -14,6 +14,16 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from edge.multimodal_layers import AlignedBundle, LayerId, parse_task_from_subgraph  # noqa: E402
+from edge.trace import (  # noqa: E402
+    Outcome,
+    SOURCE_SIM_EXPECTED,
+    StudentDecision,
+    TeacherDecision,
+    TraceRecord,
+    TraceRecorder,
+    build_context,
+    judge_by_expected,
+)
 from sim.device_sim import run_scenario  # noqa: E402
 from sim.directive_sink import DirectiveSink  # noqa: E402
 from sim.gates import evaluate_g0  # noqa: E402
@@ -73,6 +83,7 @@ def run_one_scenario(
     sink: DirectiveSink,
     scheduler_label: str = "layer_fusion_stub",
     version_offset: int = 0,
+    recorder: Optional[TraceRecorder] = None,
 ) -> ScenarioReport:
     sink.clear()
     tick_log = run_scenario(
@@ -131,13 +142,17 @@ def run_one_scenario(
         )
         multimodal_ready = bundle.ready_for(ready_key)
 
+        mock_pick = pick_mock_style(subgraph)
+        geom_pick_tick = pick_geom_baseline(subgraph)
+        fusion_pick = pick_layer_fusion_stub(bundle)
+
         report.ticks.append(
             TickMetrics(
                 version=ver,
                 expected_frontier=expected,
-                mock_pick=pick_mock_style(subgraph),
-                geom_pick=pick_geom_baseline(subgraph),
-                fusion_pick=pick_layer_fusion_stub(bundle),
+                mock_pick=mock_pick,
+                geom_pick=geom_pick_tick,
+                fusion_pick=fusion_pick,
                 directive_pick=directive_pick,
                 align_ok=align_ok,
                 layers_aligned=layers_aligned,
@@ -149,6 +164,45 @@ def run_one_scenario(
                 vln_action_match=vln_match,
             )
         )
+
+        # 师生 trace：一个 tick 一条样本，以 map_version 为连接键。
+        # 无 directive 的 tick 没有老师标签，静默跳过（不计入 rejected）。
+        if recorder is not None and recorder.enabled and directive_pick:
+            ranked = tuple(str(x) for x in (directive.get("candidate_frontier_ids") or [])) \
+                if directive else ()
+            # 老师实际消费了哪些模态：以 directive 回报的 layers_aligned 为准。
+            # 只消费 structure/task 的老师 = 抄规则，学生本就做得到，不可蒸馏。
+            mm_layers = (directive or {}).get("multimodal_layers") or {}
+            teacher_inputs = tuple(str(x) for x in (mm_layers.get("layers_aligned") or []))
+            teacher = TeacherDecision(
+                scheduler=scheduler_label,
+                picked=directive_pick or "",
+                ranked=ranked,
+                confidence=float((directive or {}).get("confidence", 0.0) or 0.0),
+                inputs=teacher_inputs,
+            )
+            student = StudentDecision(kind="geom_baseline", picked=geom_pick_tick)
+            task_goal = ""
+            if bundle.task is not None:
+                task_goal = bundle.task.goal_room_type or ""
+            recorder.record(
+                TraceRecord(
+                    map_version=ver,
+                    session_id=str(subgraph.get("session_id", "")),
+                    scenario=scenario_path.stem,
+                    tick_index=len(report.ticks) - 1,
+                    teacher=teacher,
+                    student=student,
+                    # 被执行的是学生输出（端侧真正跑的那一个）
+                    outcome=judge_by_expected(student.picked, expected),
+                    teacher_outcome=judge_by_expected(teacher.picked, expected),
+                    context=build_context(
+                        subgraph,
+                        layers_aligned=layers_aligned,
+                        task_goal=task_goal,
+                    ),
+                )
+            )
     return report
 
 
@@ -242,6 +296,11 @@ def main() -> int:
     p.add_argument("--scheduler", default="layer_fusion_stub")
     p.add_argument("--skip-edge-check", action="store_true")
     p.add_argument("--strict", action="store_true", help="G0 未通过时 exit 1")
+    p.add_argument(
+        "--trace-out",
+        default="",
+        help="师生 trace JSONL 输出路径（蒸馏数据集）；留空则不采集",
+    )
     args = p.parse_args()
 
     paths = [Path(s) for s in args.scenario] if args.scenario else sorted(SCENARIO_DIR.glob("*.json"))
@@ -260,6 +319,11 @@ def main() -> int:
     sink = DirectiveSink(host=args.edge_host, port=args.directive_port)
     sink.start()
 
+    recorder: Optional[TraceRecorder] = None
+    if args.trace_out:
+        recorder = TraceRecorder(args.trace_out)
+        print(f"[eval] trace -> {args.trace_out}", flush=True)
+
     reports: list[ScenarioReport] = []
     for idx, path in enumerate(paths):
         print(f"[eval] scenario={path.name} scheduler={args.scheduler}", flush=True)
@@ -273,6 +337,7 @@ def main() -> int:
                 sink=sink,
                 scheduler_label=args.scheduler,
                 version_offset=idx * 1000,
+                recorder=recorder,
             )
         )
 
@@ -292,6 +357,32 @@ def main() -> int:
     for g in gate_report.results:
         mark = "PASS" if g.passed else "FAIL"
         print(f"  [G0] {mark}: {g.name} ({g.detail})", flush=True)
+
+    if recorder is not None and recorder.enabled:
+        from edge.trace import agreement_rate, load_traces
+
+        summary = recorder.summary()
+        print(
+            f"[trace] written={summary['written']} rejected={summary['rejected']} "
+            f"-> {summary['path']}",
+            flush=True,
+        )
+        if summary["last_error"]:
+            print(f"[trace] last_error: {summary['last_error']}", flush=True)
+        stats = agreement_rate(load_traces(summary["path"]))
+        print(
+            f"[trace] teacher/student agreement={stats['rate']:.0%} "
+            f"({stats['agree']}/{stats['samples']}) "
+            f"teacher_success={stats['teacher_success_rate']:.0%} "
+            f"versions={stats['distinct_versions']}",
+            flush=True,
+        )
+        print(
+            f"[trace] distillable={stats['distillable_rate']:.0%} "
+            f"({stats['distillable_samples']}/{stats['samples']}) "
+            "— 老师未消费 RGB 时该值为 0，说明只是在抄规则，蒸馏无收益",
+            flush=True,
+        )
 
     if args.strict and not gate_report.passed:
         print("[eval] G0 FAILED (--strict)", flush=True)

@@ -5,6 +5,7 @@
 #   ./scripts/run_sim_bench.sh --scenario corridor_3frontiers
 #   ./scripts/run_sim_bench.sh --scheduler streamvln --scenario streamvln_kitchen
 #   ./scripts/run_sim_bench.sh --scheduler mock --no-strict
+#   ./scripts/run_sim_bench.sh --trace            # 额外采集师生 trace（蒸馏数据集）
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -14,6 +15,7 @@ source "${ROOT}/config/sim.env"
 SCENARIO_ARGS=()
 SCHEDULER="${SCHEDULER:-layer_fusion_stub}"
 STRICT=1
+TRACE_OUT=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -27,6 +29,12 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-strict)
       STRICT=0
+      shift
+      ;;
+    --trace)
+      TRACE_DIR="${ROOT}/sim/traces"
+      mkdir -p "${TRACE_DIR}"
+      TRACE_OUT="${TRACE_DIR}/trace_$(date +%Y%m%d_%H%M%S).jsonl"
       shift
       ;;
     *)
@@ -121,6 +129,7 @@ EVAL_ARGS=(
   --skip-edge-check
 )
 [[ "${STRICT}" -eq 1 ]] && EVAL_ARGS+=(--strict)
+[[ -n "${TRACE_OUT}" ]] && EVAL_ARGS+=(--trace-out "${TRACE_OUT}")
 
 if [[ ${#SCENARIO_ARGS[@]} -eq 0 ]]; then
   if [[ "${SCHEDULER}" == "streamvln" ]]; then
@@ -133,6 +142,7 @@ fi
 python3 "${ROOT}/sim/eval_runner.py" "${EVAL_ARGS[@]}" "${SCENARIO_ARGS[@]}"
 
 echo "==> [sim] G0 通过。边侧: /tmp/rgb_sim_edge.log"
+[[ -n "${TRACE_OUT}" ]] && echo "    trace: ${TRACE_OUT}"
 [[ "${SCHEDULER}" == "streamvln" ]] && echo "    StreamVLN stub: /tmp/rgb_sim_streamvln_stub.log"
 [[ "${SCHEDULER}" == "qwen_vl" ]] && echo "    Qwen-VL stub=${QWEN_VL_STUB:-true}（仿真默认 stub，真 GPU 设 QWEN_VL_STUB=false）"
 

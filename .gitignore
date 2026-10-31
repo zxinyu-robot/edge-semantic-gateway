@@ -10,6 +10,7 @@ Go2_URDF.zip
 checkpoints/
 third_party/StreamVLN/
 sim/reports/
+sim/traces/
 gazebo/reports/
 edge/mvpi1/planner.log
 *.safetensors

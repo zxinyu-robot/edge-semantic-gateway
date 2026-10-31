@@ -37,6 +37,30 @@ Go2 端侧                            边侧（本网关）
 | `streamvln` | StreamVLN 7B 官方 HTTP 协议 | 是 |
 | `mock` | 仅测连通（取第一个 frontier） | 否 |
 
+## 师生 trace（蒸馏数据入口）
+
+边侧老师（VLM）与端侧学生在同一 tick 上的决策对照，落 JSONL，用于后续端侧策略蒸馏。
+
+```bash
+./scripts/run_sim_bench.sh --trace
+# [trace] written=2 rejected=0 -> sim/traces/trace_YYYYmmdd_HHMMSS.jsonl
+# [trace] teacher/student agreement=0% (0/2) teacher_success=100% versions=2
+# [trace] distillable=100% (2/2) — 老师未消费 RGB 时该值为 0，说明只是在抄规则，蒸馏无收益
+```
+
+**三条记录原则**（`edge/trace.py`）：
+
+1. **以 `map_version` 为连接键，不以时间为键**。弱网下时钟不可靠；`map_version=0`（未知）直接拒收，否则静默污染训练集。
+2. **`context` 只记端侧可见信息**。端侧看不到 RGB，只看到 `frontier + geom_score + task_goal`；喂了 RGB 派生特征，上线必然崩。
+3. **`outcome.source` 必填**。`sim_expected`（场景标定代理）与 `robot_execution`（真机回执）不可混训，否则等于用假标签蒸馏。
+
+此外 `teacher.inputs` 记录老师实际消费的模态，`distillable` 由是否含 `vision` 推导：
+
+- 老师只用 `structure`/`task` → 学生也看得到，**是抄规则，蒸馏无收益**
+- 老师用了 `vision` → 才是可蒸馏知识，且必须经**语义瓦片**落地，学生才能间接继承
+
+`outcome` 属于被执行的动作（学生选的），老师的判据单列 `teacher_outcome`——真机上真正跑的是端侧策略，老师的选择没有执行依据。
+
 ## 快速开始（G0 协议级闭环，无 GPU）
 
 ```bash
@@ -87,7 +111,7 @@ Go2 端侧推 RGB 流 → x86 跑 StreamVLN 7B → 返回导航动作序列。�
 ## 目录结构
 
 ```text
-edge/         边侧网关（对齐器/调度器/语义指令/千问客户端）
+edge/         边侧网关（对齐器/调度器/语义指令/千问客户端/师生 trace）
 server/       StreamVLN x86 服务端
 go2/          Go2 狗端客户端（拷到狗上）
 sim/          协议级仿真（G0 评测）
@@ -95,6 +119,7 @@ gazebo/       Gazebo 物理仿真
 monitor/      Foxglove 网页监控
 config/       edge/sim/server/monitor 四组 env
 docs/         方案与选型文档
+tests/        无框架测试（python3 tests/test_trace.py）
 ```
 
 ## 设计文档
