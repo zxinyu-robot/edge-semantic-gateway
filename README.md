@@ -83,6 +83,35 @@ with SemanticMapClient("127.0.0.1", 9881, expected_version=7) as c:
 
 **坐标系**：查询点给 WGS84（机器人位姿空间），服务端负责换算到瓦片的 GCJ-02 空间。
 
+### 标注回写（VLM 结论 → 地图）
+
+VLM 已经输出 `room_found` / `found_room_type`，`edge/semantic_writer.py` 把它转成待回写标注：
+
+```python
+from edge.semantic_writer import OverlayWriter, labels_from_vlm_result
+
+labels = labels_from_vlm_result(
+    room_found=result.room_found,
+    found_room_type=result.found_room_type,
+    confidence=result.confidence,
+    lat=pose.lat, lon=pose.lon,       # WGS84
+    map_version=current_map_version,
+    session_id=session_id,
+)
+for label in labels:
+    overlay.write(label)              # 追加 JSONL，带 map_version
+```
+
+再由 C++ 工具合并进瓦片（`spatial-map-foundation` 的 `semantic_label_merge`）。
+
+**为什么 Python 不直接改瓦片**：落瓦片要过 GCJ-02 换算，这个换算只能有一份实现（C++ 的 `wgs84_to_amap_tile`）。在 Python 里重写必然重演 500m 偏移那类 bug。
+
+**两个「宁可不标」**：
+- `room_found=False` → 不标注。地图上的空白是有意义的（未探索），写错标签会让下游把错误当事实。
+- 房间类型无法归一 → 不标注，**绝不写 `unknown`**。
+
+**置信度约定**：`<=1.0` 视为比例（0.88 → 88），`>1.0` 视为百分比（75.0 → 75）。边界明确，避免 1.0/1.01 跳变。
+
 ## 快速开始（G0 协议级闭环，无 GPU）
 
 ```bash
@@ -141,7 +170,7 @@ gazebo/       Gazebo 物理仿真
 monitor/      Foxglove 网页监控
 config/       edge/sim/server/monitor 四组 env
 docs/         方案与选型文档
-tests/        无框架测试（python3 tests/test_trace.py；test_semantic_map_client.py）
+tests/        无框架测试（trace / semantic_map_client / semantic_writer）
 ```
 
 ## 设计文档
