@@ -1,4 +1,6 @@
-# RGB_ws — Go2 端边语义导航工作区
+# Edge Semantic Gateway — Go2 端边语义导航网关
+
+> 仓库名 `edge-semantic-gateway`；本目录沿用 `RGB_ws`。
 
 ## 文档
 

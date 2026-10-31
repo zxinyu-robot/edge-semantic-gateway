@@ -122,8 +122,12 @@ EVAL_ARGS=(
 )
 [[ "${STRICT}" -eq 1 ]] && EVAL_ARGS+=(--strict)
 
-if [[ ${#SCENARIO_ARGS[@]} -eq 0 && "${SCHEDULER}" == "streamvln" ]]; then
-  SCENARIO_ARGS=(--scenario "${ROOT}/sim/scenarios/streamvln_kitchen.json")
+if [[ ${#SCENARIO_ARGS[@]} -eq 0 ]]; then
+  if [[ "${SCHEDULER}" == "streamvln" ]]; then
+    SCENARIO_ARGS=(--scenario "${ROOT}/sim/scenarios/streamvln_kitchen.json")
+  else
+    SCENARIO_ARGS=(--scenario "${ROOT}/sim/scenarios/corridor_3frontiers.json")
+  fi
 fi
 
 python3 "${ROOT}/sim/eval_runner.py" "${EVAL_ARGS[@]}" "${SCENARIO_ARGS[@]}"
