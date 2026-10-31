@@ -61,6 +61,28 @@ Go2 端侧                            边侧（本网关）
 
 `outcome` 属于被执行的动作（学生选的），老师的判据单列 `teacher_outcome`——真机上真正跑的是端侧策略，老师的选择没有执行依据。
 
+## 语义地图消费（老师能力落地通道）
+
+老师（VLM）的 RGB 理解无法直接教给学生（端侧看不到 RGB），必须经**语义瓦片**中转：
+
+```text
+边侧 VLM 看懂 RGB  →  写成地图上的语义标签  →  端侧策略消费同一张语义地图
+```
+
+`edge/semantic_map_client.py` 消费 [spatial-map-foundation](https://github.com/zxinyu-robot/spatial-map-foundation) 的语义瓦片查询服务：
+
+```python
+from edge.semantic_map_client import SemanticMapClient, describe_for_prompt
+
+with SemanticMapClient("127.0.0.1", 9881, expected_version=7) as c:
+    r = c.query(lat, lon, radius_m=300, categories=["kitchen"], min_confidence=60)
+    prompt_hint = describe_for_prompt(r)   # 塞进 VLM prompt 的语义上下文
+```
+
+**版本校验**：每次响应带 `map_version`，客户端主动比对；不一致抛 `SemanticMapVersionMismatch`。拿 v45 的坐标配 v42 的语义，会产出看起来合理但完全错误的样本。
+
+**坐标系**：查询点给 WGS84（机器人位姿空间），服务端负责换算到瓦片的 GCJ-02 空间。
+
 ## 快速开始（G0 协议级闭环，无 GPU）
 
 ```bash
@@ -119,7 +141,7 @@ gazebo/       Gazebo 物理仿真
 monitor/      Foxglove 网页监控
 config/       edge/sim/server/monitor 四组 env
 docs/         方案与选型文档
-tests/        无框架测试（python3 tests/test_trace.py）
+tests/        无框架测试（python3 tests/test_trace.py；test_semantic_map_client.py）
 ```
 
 ## 设计文档
