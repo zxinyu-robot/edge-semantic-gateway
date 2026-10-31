@@ -135,3 +135,7 @@ python3 "${ROOT}/sim/eval_runner.py" "${EVAL_ARGS[@]}" "${SCENARIO_ARGS[@]}"
 echo "==> [sim] G0 通过。边侧: /tmp/rgb_sim_edge.log"
 [[ "${SCHEDULER}" == "streamvln" ]] && echo "    StreamVLN stub: /tmp/rgb_sim_streamvln_stub.log"
 [[ "${SCHEDULER}" == "qwen_vl" ]] && echo "    Qwen-VL stub=${QWEN_VL_STUB:-true}（仿真默认 stub，真 GPU 设 QWEN_VL_STUB=false）"
+
+# macOS bash 3.2 下 set -e + EXIT trap 会把 cleanup 的 kill 退出码带成脚本退出码，
+# 此处显式归零，保证 G0 通过时脚本返回 0（供 CI / 自动化判断）。
+exit 0
