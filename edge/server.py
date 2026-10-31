@@ -367,7 +367,7 @@ def main() -> int:
     parser.add_argument("--streamvln-timeout-s", type=float, default=30.0)
     parser.add_argument(
         "--qwen-vl-model",
-        default="Qwen/Qwen2.5-VL-7B-Instruct",
+        default="Qwen/Qwen2.5-VL-3B-Instruct",
         help="HuggingFace 模型 ID（scheduler=qwen_vl）",
     )
     parser.add_argument("--qwen-vl-device", default="cuda:0", help="cuda:0 | auto")

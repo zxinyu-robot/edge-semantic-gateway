@@ -1,4 +1,4 @@
-"""Qwen2.5-VL-7B 边侧推理客户端."""
+"""Qwen2.5-VL 边侧推理客户端."""
 from __future__ import annotations
 
 import threading
@@ -44,7 +44,7 @@ class QwenVLClient:
     def __init__(
         self,
         *,
-        model_id: str = "Qwen/Qwen2.5-VL-7B-Instruct",
+        model_id: str = "Qwen/Qwen2.5-VL-3B-Instruct",
         device: str = "cuda:0",
         load_in_4bit: bool = True,
         max_new_tokens: int = 512,
