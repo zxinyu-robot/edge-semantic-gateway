@@ -1,3 +1,5 @@
+> **本仓库已并入 [swarm-adapter-foundation](https://github.com/zxinyu-robot/swarm-adapter-foundation)（目录 `gateway/`），此处只读归档，后续维护在新仓库进行。**
+
 # Edge Semantic Gateway — 边侧语义调度网关
 
 边侧语义调度网关：收端侧 RGB 流 + 子图流双路上行，语义调度后回 `SemanticDirective` 下行。只产出 frontier 级任务建议，不碰运动控制。
